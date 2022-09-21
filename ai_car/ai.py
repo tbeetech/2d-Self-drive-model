@@ -2,37 +2,29 @@
 """
 Created on Mon Sep 12 19:12:48 2022
 
-@author: Oluwatobi
+@author: Oluwatobi Oyebade
 """
 # modules required
-# to save and load the experience replay memory on the system
 import os
-# to sample random transitions from the experience replay memory.
 import random
-# import pytorch library
 import torch
-# to construct neural network architecture
 import torch.nn as nn
-# to froward propagate neural network input(weight, bias)
-import torch.nn.functional as f
-# to optimize the gradient of the loss function with respect network input parameters
+import torch.nn.functional as F
 import torch.optim as optim
-
 from torch.autograd import Variable
-
-
 class Network(nn.Module):
     def __init__(self, input_size, nb_action):
-        super().__init__()
+        super(Network, self).__init__()
         self.input_size = input_size
         self.nb_action = nb_action
         self.fc1 = nn.Linear(input_size, 30)
         self.fc2 = nn.Linear(30, nb_action)
 
-    def froward(self, state):
-        x = f.relu(self.fc1(state))
+    def forward(self, state):
+        x = F.relu(self.fc1(state))
         q_values = self.fc2(x)
         return q_values
+
 
 class ReplayMemory(object):
     def __init__(self, capacity):
@@ -45,10 +37,12 @@ class ReplayMemory(object):
 
     def sample(self, batch_size):
         samples = zip(*random.sample(self.memory, batch_size))
+        #applies Tensor conversion across each item.
         return map(lambda x: Variable(torch.cat(x, 0)), samples)
 
+
 class Dqn(object):
-    def __init__(self, input_size, nb_action,gamma):
+    def __init__(self, input_size, nb_action, gamma):
         self.gamma = gamma
         self.model = Network(input_size, nb_action)
         self.memory = ReplayMemory(capacity = 100000)
@@ -59,17 +53,15 @@ class Dqn(object):
 
     def select_action(self, state):
         #multiply Q-values by 100 to avoid the issue of AIagent. uncertainty.
-        selected_actions_q_values = (self.model.foward(Variable(state)) * 100)
-        probs = f.softmax(selected_actions_q_values)
-        print(probs)
+        probs = F.softmax(self.model(Variable(state))*100)
         action = probs.multinomial(len(probs))
         return action.data[0,0]
 
-    def learn(self, batch_states,batch_actions, batch_rewards, batch_next_states):
+    def learn(self, batch_states, batch_actions, batch_rewards, batch_next_states):
         batch_outputs = self.model(batch_states).gather(1, batch_actions.unsqueeze(1)).squeeze(1)
         batch_next_outputs = self.model(batch_next_states).detach().max(1)[0]
         batch_targets = batch_rewards + self.gamma * batch_next_outputs
-        td_loss = f.smooth_l1_loss(batch_outputs, batch_targets)
+        td_loss = F.smooth_l1_loss(batch_outputs, batch_targets)
         self.optimizer.zero_grad()
         td_loss.backward()
         self.optimizer.step()
@@ -81,9 +73,24 @@ class Dqn(object):
         if len(self.memory.memory) > 100:
             batch_states, batch_actions, batch_rewards, batch_next_states = self.memory.sample(100)
             self.learn(batch_states, batch_actions, batch_rewards, batch_next_states)
-            self.last_state = new_state
-            self.last_action = new_action
-            self.last_reward = new_reward
+        self.last_state = new_state
+        self.last_action = new_action
+        self.last_reward = new_reward
         return new_action
+    def save(self):
+        torch.save({'state_dict': self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
+                    }, 'last_brain.pth')
+
+    def load(self):
+        if os.path.isfile('last_brain.pth'):
+            print("=> loading checkpoint...")
+            checkpoint = torch.load('last_brain.pth')
+            self.model.load_state_dict(checkpoint['state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            print('done !')
+        else:
+            print('earlier brain not found')
+
 
 
